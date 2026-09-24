@@ -9,14 +9,14 @@ import pytest
 
 from briefing.tdx.blocks import load_block_maps
 from briefing.tdx.day import read_day_bars
-from briefing.tdx.extdata import read_extdata_series
+from briefing.tdx.extdata import read_extdata_series, read_market_extdata
 
 TDX = Path(r"C:\zd_pazq_hy")
 live = pytest.mark.skipif(not TDX.is_dir(), reason="skip")
 
 
-def _pack_day(date_int: int, close_fen: int) -> bytes:
-    return struct.pack("<IIIIIfII", date_int, close_fen, close_fen, close_fen, close_fen, 0.0, 100, 0)
+def _pack_day(date_int: int, close_fen: int, volume: int = 100) -> bytes:
+    return struct.pack("<IIIIIfII", date_int, close_fen, close_fen, close_fen, close_fen, 0.0, volume, 0)
 
 
 def test_day_bars_ascending_and_price_scale(tmp_path: Path) -> None:
@@ -24,10 +24,13 @@ def test_day_bars_ascending_and_price_scale(tmp_path: Path) -> None:
     path.write_bytes(_pack_day(20260918, 432150) + _pack_day(20260922, 430000))
     bars = read_day_bars(path)
     assert bars == [
-        {"date": "2026-09-18", "close": 4321.50},
-        {"date": "2026-09-22", "close": 4300.00},
+        {"date": "2026-09-18", "close": 4321.50, "volume": 100},
+        {"date": "2026-09-22", "close": 4300.00, "volume": 100},
     ]
-    assert read_day_bars(path, last_n=1) == [{"date": "2026-09-22", "close": 4300.00}]
+    assert read_day_bars(path, last_n=1) == [{"date": "2026-09-22", "close": 4300.00, "volume": 100}]
+    halted = tmp_path / "halt.day"
+    halted.write_bytes(_pack_day(20260923, 1000, volume=0))
+    assert read_day_bars(halted) == [{"date": "2026-09-23", "close": 10.0, "volume": 0}]
 
 
 def test_day_bars_missing_on_bad_length(tmp_path: Path) -> None:
@@ -67,6 +70,7 @@ def _write_extdata(directory: Path) -> None:
 def test_extdata_value_zero_and_missing(tmp_path: Path) -> None:
     _write_extdata(tmp_path)
     assert read_extdata_series(tmp_path, 12, "880301", "2026-09-22") == pytest.approx(88.5)
+    assert read_market_extdata(tmp_path, 12, "2026-09-18") == pytest.approx(10.0)
     assert read_extdata_series(tmp_path, 12, "880301", "2026-09-18") == 0.0
     assert read_extdata_series(tmp_path, 12, "880999", "2026-09-22") == "missing"
     assert read_extdata_series(tmp_path, 12, "880301", "2026-09-23") == "missing"

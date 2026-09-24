@@ -33,10 +33,15 @@ def to_date_str(value: date | datetime | str | int) -> str:
 
 
 def read_day_bars(path: str | Path, last_n: int | None = None) -> list[dict] | str:
-    """Return ascending ``{date, close}`` bars, or ``missing``.
+    """Return ascending ``{date, close, volume}`` bars, or ``missing``.
 
-    ``close`` is already divided by 100. A missing file, or a length that is
-    not a multiple of 32, is ``missing``. Dates must be strictly increasing.
+    ``close`` is already divided by 100. ``volume`` is the raw share count
+    from the file. A zero volume marks a day with no trades. Signals read
+    ``close`` only. Breadth uses ``volume == 0`` to drop that stock from
+    the day's high, low, 4% and 25% counts. This is not a turnover floor.
+
+    A missing file, or a length that is not a multiple of 32, is ``missing``.
+    Dates must be strictly increasing.
     """
     day_path = Path(path)
     if not day_path.is_file():
@@ -65,5 +70,5 @@ def read_day_bars(path: str | Path, last_n: int | None = None) -> list[dict] | s
         if previous is not None and iso <= previous:
             return MISSING
         previous = iso
-        bars.append({"date": iso, "close": close / 100.0})
+        bars.append({"date": iso, "close": close / 100.0, "volume": int(_volume)})
     return bars

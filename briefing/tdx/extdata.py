@@ -67,3 +67,41 @@ def read_extdata_series(
             return MISSING
         data_offset += count * DAT_SIZE
     return MISSING
+
+
+def read_new_high_net(extdata_dir: str | Path, on_date: str | int) -> int | float | str:
+    """Return 新高家数 − 新低家数 from ``extdata_13``, or ``missing``.
+
+    The file has one market series. Separate high and low counts are not stored.
+    A whole number is returned as an int.
+    """
+    value = read_market_extdata(extdata_dir, 13, on_date)
+    if value == MISSING:
+        return MISSING
+    number = float(value)
+    if number.is_integer():
+        return int(number)
+    return number
+
+
+def read_market_extdata(
+    extdata_dir: str | Path,
+    ext_num: int,
+    on_date: str | int,
+) -> float | str:
+    """Read the first index entry of a market-wide file such as extdata_4/5/6/13.
+
+    These files hold one market series. When Tongdaxin writes several index
+    entries, their series are identical, so the first entry is the market value.
+    """
+    directory = Path(extdata_dir)
+    idx_path = directory / f"extdata_{ext_num}.idx"
+    if not idx_path.is_file():
+        return MISSING
+    idx_data = idx_path.read_bytes()
+    if len(idx_data) < IDX_SIZE:
+        return MISSING
+    code = idx_data[2:8].rstrip(b"\x00").decode("ascii", errors="replace")
+    if not code:
+        return MISSING
+    return read_extdata_series(directory, ext_num, code, on_date)

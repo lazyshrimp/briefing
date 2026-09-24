@@ -81,43 +81,42 @@ def _hand_ma(closes: list[float], window: int) -> float:
     return sum(closes[-window:]) / window
 
 
+def _checked_signals(bars: list[dict]) -> dict:
+    closes = [bar["close"] for bar in bars]
+    ma5 = _hand_ma(closes, 5)
+    ma10 = _hand_ma(closes, 10)
+    ma20 = _hand_ma(closes, 20)
+    assert moving_average(closes, 10) == pytest.approx(ma10)
+    assert moving_average(closes, 20) == pytest.approx(ma20)
+    signals = index_signals(bars)
+    last = closes[-1]
+    expected_daily = "YES" if last > ma10 and last > ma20 and ma10 > ma20 else "NO"
+    expected_ma5 = "YES" if last > ma5 and ma5 > _hand_ma(closes[:-1], 5) else "NO"
+    assert signals["daily_buy"] == expected_daily
+    assert signals["above_rising_ma5"] == expected_ma5
+    assert signals["weekly_buy"] in {"YES", "NO"}
+    return {
+        "close": round(last, 2),
+        "ma5": round(ma5, 2),
+        "ma10": round(ma10, 2),
+        "ma20": round(ma20, 2),
+        "daily_buy": signals["daily_buy"],
+        "weekly_buy": signals["weekly_buy"],
+        "above_rising_ma5": signals["above_rising_ma5"],
+    }
+
+
 @live
 def test_live_ma_matches_hand_calculation_and_golden() -> None:
     paths = {
         "hs300": TDX / "vipdoc" / "sh" / "lday" / "sh000300.day",
         "chinext": TDX / "vipdoc" / "sz" / "lday" / "sz399006.day",
     }
-    payload = {}
+    frozen = json.loads((FIXTURES / "golden_20260923.json").read_text(encoding="utf-8"))
     for name, path in paths.items():
         bars = read_day_bars(path)
         assert isinstance(bars, list)
-        closes = [bar["close"] for bar in bars]
-        ma5 = _hand_ma(closes, 5)
-        ma10 = _hand_ma(closes, 10)
-        ma20 = _hand_ma(closes, 20)
-        assert moving_average(closes, 10) == pytest.approx(ma10)
-        assert moving_average(closes, 20) == pytest.approx(ma20)
-        signals = index_signals(bars)
-        last = closes[-1]
-        expected_daily = "YES" if last > ma10 and last > ma20 and ma10 > ma20 else "NO"
-        expected_ma5 = "YES" if last > ma5 and ma5 > _hand_ma(closes[:-1], 5) else "NO"
-        assert signals["daily_buy"] == expected_daily
-        assert signals["above_rising_ma5"] == expected_ma5
-        assert signals["weekly_buy"] in {"YES", "NO"}
-        payload[name] = {
-            "close": round(last, 2),
-            "ma5": round(ma5, 2),
-            "ma10": round(ma10, 2),
-            "ma20": round(ma20, 2),
-            "daily_buy": signals["daily_buy"],
-            "weekly_buy": signals["weekly_buy"],
-            "above_rising_ma5": signals["above_rising_ma5"],
-        }
-
-    trade_date = read_day_bars(paths["hs300"])[-1]["date"]
-    golden_path = FIXTURES / f"golden_{trade_date.replace('-', '')}.json"
-    assert golden_path.is_file(), golden_path
-    frozen = json.loads(golden_path.read_text(encoding="utf-8"))
-    assert frozen["date"] == trade_date
-    assert frozen["hs300"] == payload["hs300"]
-    assert frozen["chinext"] == payload["chinext"]
+        _checked_signals(bars)
+        as_of = [bar for bar in bars if bar["date"] <= frozen["date"]]
+        assert as_of[-1]["date"] == frozen["date"]
+        assert frozen[name] == _checked_signals(as_of)
