@@ -1,0 +1,22 @@
+{
+  "date": "2026-09-23",
+  "source": "SMA of close from the local Tongdaxin .day file, rounded to 2 decimals. Checked against the Tongdaxin screen on 2026-09-24.",
+  "hs300": {
+    "close": 4517.28,
+    "ma5": 4513.8,
+    "ma10": 4503.79,
+    "ma20": 4543.44,
+    "daily_buy": "NO",
+    "weekly_buy": "NO",
+    "above_rising_ma5": "YES"
+  },
+  "chinext": {
+    "close": 3379.61,
+    "ma5": 3370.02,
+    "ma10": 3335.56,
+    "ma20": 3355.51,
+    "daily_buy": "NO",
+    "weekly_buy": "NO",
+    "above_rising_ma5": "YES"
+  }
+}
