@@ -707,7 +707,7 @@ Step 1–4 属于开发/验证。Step 16 是失败诊断，不属于每日主路
 ### Step 15 — D7 Evaluator
 
 - Step：只检查 D6 已经一次写出的最终简报。先跑 11 条需求检查，再跑实现自检。
-- Input：简报文件、当次 snapshot、`metrics_used`。不读规格文件。
+- Input：简报文件、当次 snapshot、`metrics_used`。不读规格文件。简报文件由 Step 13 的 `write_briefing` 写出；`metrics_used` 只用于第 8 条，Step 14 完成前由评论桩提供，第 8 条记为未检查，总状态不得为 PASS。
 - Files / Functions：`briefing/evaluation/evaluator.py`。
 - Implementation：只判定，不改简报，不改数字。
 - Output：PASS，或 `requirement_failures` 与 `sanity_failures`。D7 为 FAIL 时，D6 文件保持为 candidate。
