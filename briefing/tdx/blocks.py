@@ -1,9 +1,10 @@
 """Load industry and concept block codes.
 
 Industry names come from the Tongdaxin industry chain in ``incon.dat``
-(fields whose code starts with ``T``). A name is kept only when ``tdxzs.cfg``
-has the same name. That is the chain canslim already uses. Style, region,
-and broad-market names are not on that chain, so they stay out.
+(fields whose code starts with ``T``). Only a code with no longer child is
+kept: that is the ordinary sub-industry, such as 煤炭开采, not the parent
+煤炭. A name is kept only when ``tdxzs.cfg`` has the same name. Style,
+region, and broad-market names are not on that chain, so they stay out.
 
 Concepts come only from ``#GN_`` headers in ``infoharbor_block.dat``.
 """
@@ -32,11 +33,17 @@ def load_block_maps(
     if not tdxzs.is_file() or not incon.is_file() or not infoharbor.is_file():
         return STOP
 
-    industry_names: set[str] = set()
+    chain: list[tuple[str, str]] = []
     for line in _read_text(incon).splitlines():
         parts = line.strip().split("|")
-        if len(parts) >= 2 and parts[0].startswith("T") and parts[1]:
-            industry_names.add(parts[1])
+        if len(parts) >= 2 and parts[0].startswith("T") and parts[0][1:].isdigit() and parts[1]:
+            chain.append((parts[0], parts[1]))
+    codes = {code for code, _name in chain}
+    industry_names = {
+        name
+        for code, name in chain
+        if not any(other.startswith(code) and len(other) > len(code) for other in codes)
+    }
 
     industry: list[dict] = []
     seen_codes: set[str] = set()

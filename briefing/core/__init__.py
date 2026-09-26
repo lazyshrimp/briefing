@@ -1,1 +1,1 @@
-"""Calendar and, later, shared models."""
+"""Calendar and the in-memory snapshot, draft, and commentary slot."""

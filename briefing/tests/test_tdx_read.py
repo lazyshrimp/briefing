@@ -82,14 +82,21 @@ def test_block_maps_keep_industry_chain_and_gn_only(tmp_path: Path) -> None:
     incon = tmp_path / "incon.dat"
     info = tmp_path / "infoharbor_block.dat"
     tdxzs.write_bytes(
-        "煤炭|880301|2|1|0|T0101\n轮动趋势|880081|5|2|0|x\n黑龙江|880201|3|1|0|1\n".encode("gbk")
+        "\n".join(
+            [
+                "煤炭|880301|2|1|0|T0101",
+                "煤炭开采|880302|2|1|1|T010101",
+                "轮动趋势|880081|5|2|0|x",
+                "黑龙江|880201|3|1|0|1",
+            ]
+        ).encode("gbk")
     )
-    incon.write_bytes("T0101|煤炭\nT0102|电力\n".encode("gbk"))
+    incon.write_bytes("T0101|煤炭\nT010101|煤炭开采\nT0102|电力\n".encode("gbk"))
     info.write_bytes(
         "#GN_人工智能,3,880506,0,0,,\n#FG_高分红,1,880526,0,0,,\n".encode("gbk")
     )
     loaded = load_block_maps(tdxzs, incon, info)
-    assert loaded["industry"] == [{"code": "880301", "name": "煤炭"}]
+    assert loaded["industry"] == [{"code": "880302", "name": "煤炭开采"}]
     assert loaded["concept"] == [{"code": "880506", "name": "人工智能"}]
     codes = {item["code"] for item in loaded["industry"] + loaded["concept"]}
     assert "880081" not in codes
