@@ -8,6 +8,7 @@ from datetime import date
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+from briefing.report.commentary import allowed_metric_names
 from briefing.report.writer import SECTIONS, _KINDS, _RANK_PERIODS
 
 _INDEX_LABELS = {"hs300": "沪深300", "chinext": "创业板指"}
@@ -38,7 +39,11 @@ def evaluate_briefing(
     *,
     context: dict,
 ) -> dict:
-    """Return PASS, FAIL, or STOP. Check 8 stays unchecked until commentary exists."""
+    """Return PASS, FAIL, or STOP.
+
+    Check 8 reads the 市场评论 section and ``context["metrics_used"]``.
+    Without that list the check stays unchecked, so the status cannot be PASS.
+    """
     try:
         resolved = reference
         if resolved is None:
@@ -60,7 +65,7 @@ def _evaluate(path: Path, snapshot: dict, reference: dict, context: dict) -> dic
     failures: list[int] = []
     sanity: list[str] = []
     details: dict = {}
-    not_checked = [8]
+    not_checked: list[int] = []
     text = path.read_text(encoding="utf-8") if path.is_file() else None
     trading = str(context.get("is_trading_day", "")).lower() == "trading_day"
     day_file = Path(context["output_dir"]) / f"{context['on_date']}.md"
@@ -68,7 +73,7 @@ def _evaluate(path: Path, snapshot: dict, reference: dict, context: dict) -> dic
     if trading != day_file.is_file():
         _fail(failures, details, 1, "交易日应有且仅在交易日有该日简报" if trading else "非交易日不应有该日简报")
     if text is None:
-        pending = [number for number in range(1, 12) if number not in failures and number != 8]
+        pending = [number for number in range(1, 12) if number not in failures]
         not_checked = sorted(set(not_checked + pending))
         _sanity_schema(snapshot, context, sanity, details)
         return _result(failures, sanity, not_checked, details)
@@ -78,13 +83,14 @@ def _evaluate(path: Path, snapshot: dict, reference: dict, context: dict) -> dic
     _check_ma50(sections.get(SECTIONS[1], ""), reference, failures, details)
     _check_counts(sections.get(SECTIONS[1], ""), reference, failures, details)
     _check_sentiment(path, sections.get(SECTIONS[2], ""), context, failures, details)
+    _check_commentary(sections.get(SECTIONS[3], ""), snapshot, context, failures, details, not_checked)
     _check_ranks(sections.get(SECTIONS[4], ""), snapshot, reference, failures, details)
     _check_chart_window(context, failures, sanity, details)
     _check_missing_marks(sections, snapshot, reference, failures, details)
     _sanity_schema(snapshot, context, sanity, details)
     _sanity_identity(snapshot, sanity, details)
     _sanity_rounding(text, sanity, details)
-    return _result(failures, sanity, not_checked, details)
+    return _result(failures, sanity, sorted(not_checked), details)
 
 
 def _result(failures: list[int], sanity: list[str], not_checked: list[int], details: dict) -> dict:
@@ -522,11 +528,105 @@ def _shown_cells(sections: dict[str, str]) -> dict[str, str | None]:
     return shown
 
 
+def _check_commentary(
+    section: str,
+    snapshot: dict,
+    context: dict,
+    failures: list[int],
+    details: dict,
+    not_checked: list[int],
+) -> None:
+    """Check 8. Layer 2 does not require every number in the text to be copied from the snapshot."""
+    if "metrics_used" not in context:
+        not_checked.append(8)
+        return
+    metrics = context["metrics_used"]
+    if not isinstance(metrics, list) or any(not isinstance(item, str) for item in metrics):
+        _fail(failures, details, 8, "metrics_used 不是指标名列表")
+        return
+    unknown = [item for item in metrics if item not in allowed_metric_names(snapshot)]
+    if unknown:
+        _fail(failures, details, 8, f"metrics_used 含 snapshot 之外的指标：{unknown[0]}")
+    text = section.strip()
+    if not text:
+        _fail(failures, details, 8, "市场评论为空")
+        return
+    if text == _MISSING:
+        return
+    problem = _commentary_problem(text, snapshot)
+    if problem:
+        _fail(failures, details, 8, problem)
+
+
+def _commentary_problem(text: str, snapshot: dict) -> str | None:
+    scanned = text.replace(_BUYERS, "")
+    if re.search(r"买入|卖出|买进|建议买|建议卖|做多|做空", scanned):
+        return "评论含有买入或卖出建议"
+    if re.search(r"仓位|满仓|半仓|空仓|轻仓|重仓|加仓|减仓|清仓", scanned):
+        return "评论含有仓位建议"
+    if re.search(r"买入价|卖出价|目标价|买卖价|(?<![\d.])-?\d+(?:\.\d+)?\s*元", scanned):
+        return "评论含有具体买卖价格"
+    alien = _alien_market_number(text, snapshot)
+    if alien:
+        return f"评论含有 snapshot 中没有的市场数值：{alien}"
+    return None
+
+
+def _alien_market_number(text: str, snapshot: dict) -> str | None:
+    cleaned = re.sub(r"\d{4}-\d{2}-\d{2}|\d{4}年\d{1,2}月\d{1,2}日", " ", text)
+    cleaned = re.sub(r"-?\d+(?:\.\d+)?[%％]", " ", cleaned)
+    cleaned = re.sub(r"(?<!\d)(?:5|10|15|20|60)日", " ", cleaned)
+    known = _snapshot_numbers(snapshot)
+    patterns = (
+        r"(-?\d+(?:\.\d+)?)\s*点",
+        r"点位\s*(-?\d+(?:\.\d+)?)",
+        r"成交额\s*(-?\d+(?:\.\d+)?)",
+        r"(-?\d+(?:\.\d+)?)\s*(?:万亿|亿元|万元|亿|万)",
+    )
+    for pattern in patterns:
+        for match in re.finditer(pattern, cleaned):
+            if not _known_number(match.group(1), known):
+                return match.group(0).strip()
+    return None
+
+
+def _snapshot_numbers(value: object, found: set[float] | None = None) -> set[float]:
+    if found is None:
+        found = set()
+    if isinstance(value, bool) or value is None or isinstance(value, str):
+        return found
+    if isinstance(value, (int, float)):
+        found.add(float(value))
+        return found
+    if isinstance(value, dict):
+        for item in value.values():
+            _snapshot_numbers(item, found)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            _snapshot_numbers(item, found)
+    return found
+
+
+def _known_number(raw: str, known: set[float]) -> bool:
+    try:
+        number = float(raw)
+    except ValueError:
+        return False
+    return any(abs(number - item) <= 1e-6 for item in known)
+
+
 def _sanity_schema(snapshot: dict, context: dict, sanity: list[str], details: dict) -> None:
     output = Path(context["output_dir"])
     dated = [path for path in output.glob("*.md") if context["on_date"] in path.name]
-    if len(dated) > 1 or not _metrics_ok(snapshot):
+    if len(dated) > 1 or not _metrics_ok(snapshot) or not _commentary_fields_ok(context):
         _fail(sanity, details, "schema", "snapshot 字段或该日简报份数不符合约定")
+
+
+def _commentary_fields_ok(context: dict) -> bool:
+    if "metrics_used" not in context:
+        return True
+    metrics = context["metrics_used"]
+    return isinstance(metrics, list) and all(isinstance(item, str) for item in metrics)
 
 
 def _metrics_ok(snapshot: dict) -> bool:

@@ -107,6 +107,7 @@ def _case(tmp_path: Path) -> tuple[Path, dict, dict, dict]:
         "chart_redrawn": False,
         "new_sentiment_week": False,
         "chart_points": 2,
+        "metrics_used": ["net"],
     }
     return output / f"{ON}.md", snapshot, reference, context
 
@@ -115,15 +116,15 @@ def _run(path: Path, snapshot: dict, reference: dict, context: dict) -> dict:
     return evaluate_briefing(path, snapshot, reference, context=context)
 
 
-def test_a_matching_briefing_leaves_only_check_8_unchecked(tmp_path: Path) -> None:
+def test_a_matching_briefing_passes(tmp_path: Path) -> None:
     path, snapshot, reference, context = _case(tmp_path)
     before = hashlib.sha256(path.read_bytes()).hexdigest()
     result = _run(path, snapshot, reference, context)
     assert hashlib.sha256(path.read_bytes()).hexdigest() == before
     assert result["requirement_failures"] == []
     assert result["sanity_failures"] == []
-    assert result["not_checked"] == [8]
-    assert result["status"] != "PASS"
+    assert result["not_checked"] == []
+    assert result["status"] == "PASS"
 
 
 def test_a_wrong_five_day_ratio_is_check_5(tmp_path: Path) -> None:
@@ -351,9 +352,11 @@ def test_live_20260924_matches_the_independent_reference(tmp_path: Path) -> None
             "chart_redrawn": False,
             "new_sentiment_week": False,
             "chart_points": chart["points"],
+            "metrics_used": ["net"],
         },
     )
     assert result["requirement_failures"] == []
     assert result["sanity_failures"] == []
-    assert result["not_checked"] == [8]
+    assert result["not_checked"] == []
+    assert result["status"] == "PASS"
     assert hashlib.sha256(stored_png.read_bytes()).hexdigest() == before

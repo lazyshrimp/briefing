@@ -1,1 +1,1 @@
-"""Report files: sentiment rows, charts, and the briefing writer."""
+"""Report files: sentiment rows, charts, commentary, and the briefing writer."""
