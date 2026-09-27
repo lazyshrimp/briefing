@@ -85,8 +85,9 @@ def test_a_commentary_stub_writes_all_five_sections_at_once(tmp_path: Path) -> N
     for title in SECTIONS:
         assert text.count(f"## {title}") == 1
     assert _section(text, "市场评论") == STUB
-    assert "Daily Buy Signal：YES" in text
-    assert "Price Action Above Rising 5-DMA：缺失" in text
+    assert "日线买入信号：YES" in text
+    assert "收盘价在 10 日均线和 20 日均线之上，并且 10 日均线在 20 日均线之上。相等为否。" in text
+    assert "价格在上升的5日均线之上：缺失" in text
     assert "52周新高减新低：-71" in text
     assert "沪深300 50日线以上比例：26.67%（80 / 300）" in text
     assert "沪深 50日线以上比例：55.40%（2896 / 5227）" in text
@@ -105,7 +106,16 @@ def test_a_commentary_stub_writes_all_five_sections_at_once(tmp_path: Path) -> N
     assert "1. 风沙治理 缺失" in text
     assert "（不足 10 个）" in text
     assert "short_list" not in text
-    assert "1. 红黄酒 23.09% RPS 1000" in text
+    assert "1. 红黄酒 23.09%" in text
+    assert "RPS" not in text
+    assert "15日" not in text
+    ranks = _section(text, "板块与概念")
+    assert ranks.index("### 当日") < ranks.index("#### 行业") < ranks.index("#### 概念") < ranks.index("### 5日")
+    page = tmp_path / f"{ON}.html"
+    assert written["html"] == str(page)
+    page_text = page.read_text(encoding="utf-8")
+    assert "日线买入信号" in page_text
+    assert "收盘价在 5 日均线之上，并且 5 日均线高于前一日的 5 日均线。相等为否。" in page_text
     assert list(tmp_path.glob("*.tmp")) == []
 
 

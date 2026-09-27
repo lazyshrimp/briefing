@@ -9,14 +9,10 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from briefing.report.commentary import allowed_metric_names
-from briefing.report.writer import SECTIONS, _KINDS, _RANK_PERIODS
+from briefing.report.writer import SECTIONS, _KINDS, _RANK_PERIODS, _SIGNALS
 
 _INDEX_LABELS = {"hs300": "沪深300", "chinext": "创业板指"}
-_SIGNAL_LABELS = (
-    ("daily_buy", "Daily Buy Signal"),
-    ("weekly_buy", "Weekly Buy Signal"),
-    ("above_rising_ma5", "Price Action Above Rising 5-DMA"),
-)
+_SIGNAL_LABELS = tuple((field, name) for field, name, _note in _SIGNALS)
 _MA50_LABELS = (
     ("hs300", "沪深300 50日线以上比例"),
     ("chinext", "创业板 50日线以上比例"),
@@ -272,18 +268,13 @@ def _check_ranks(section: str, snapshot: dict, reference: dict, failures: list[i
     ranks = reference.get("ranks") or {}
     stored = snapshot.get("ranks") or {}
     for kind in ("industry", "concept"):
-        _check_board(
-            parsed.get(kind, {}).get("daily"),
-            _items(stored, "daily", kind, None),
-            (ranks.get("daily") or {}).get(kind) or [],
-            failures,
-            details,
-        )
-        for period in (5, 10, 15, 20):
+        for label, period in _RANK_PERIODS:
+            slot = "daily" if period is None else period
+            family = "daily" if period is None else "rps"
             _check_board(
-                parsed.get(kind, {}).get(period),
-                _items(stored, "rps", kind, period),
-                ((ranks.get("rps") or {}).get(kind) or {}).get(period) or [],
+                parsed.get(kind, {}).get(slot),
+                _items(stored, family, kind, period),
+                _reference_rows(ranks, family, kind, period),
                 failures,
                 details,
             )
@@ -333,27 +324,32 @@ def _pct_text(value: object) -> str:
     return f"{float(value) * 100:.2f}%"
 
 
+def _reference_rows(ranks: dict, family: str, kind: str, period: int | None) -> list[dict]:
+    group = (ranks.get(family) or {}).get(kind)
+    if period is None:
+        return list(group or [])
+    if not isinstance(group, dict):
+        return []
+    return list(group.get(period) or [])
+
+
 def _parse_boards(section: str) -> dict:
     parsed: dict = {}
     kind = None
-    period = None
+    slot = None
     for line in section.splitlines():
         stripped = line.strip()
         if stripped.startswith("### "):
-            kind = _KIND_LABELS.get(stripped[4:].strip())
-            if kind:
-                parsed.setdefault(kind, {})
-            period = None
+            label = stripped[4:].strip()
+            slot = "daily" if label == "当日" else _PERIOD_LABELS.get(label)
+            kind = None
             continue
         if stripped.startswith("#### "):
-            period = _PERIOD_LABELS.get(stripped[5:].strip())
-            if kind and period is not None or (kind and stripped[5:].strip() == "当日"):
-                parsed[kind][period if period is not None else "daily"] = []
+            kind = _KIND_LABELS.get(stripped[5:].strip())
+            if kind and slot is not None:
+                parsed.setdefault(kind, {})[slot] = []
             continue
-        if kind is None or not parsed.get(kind):
-            continue
-        slot = "daily" if period is None else period
-        if slot not in parsed[kind]:
+        if kind is None or slot is None or slot not in parsed.get(kind, {}):
             continue
         if stripped == _MISSING and parsed[kind][slot] == []:
             parsed[kind][slot] = None
@@ -459,7 +455,8 @@ def _mark_cell(value: object, display: str | None, failures: list[int], details:
 def _mark_ranks(sections: dict[str, str], snapshot: dict, failures: list[int], details: dict) -> None:
     parsed = _parse_boards(sections.get(SECTIONS[4], ""))
     ranks = snapshot.get("ranks") or {}
-    slots = (("daily", "daily", None), (5, "rps", 5), (10, "rps", 10), (15, "rps", 15), (20, "rps", 20))
+    slots = [("daily", "daily", None)]
+    slots.extend((period, "rps", period) for _label, period in _RANK_PERIODS if period is not None)
     for kind in ("industry", "concept"):
         for slot, family, period in slots:
             rows = parsed.get(kind, {}).get(slot, [])
@@ -556,6 +553,17 @@ def _check_commentary(
     problem = _commentary_problem(text, snapshot)
     if problem:
         _fail(failures, details, 8, problem)
+
+
+def commentary_rejection(text: str, metrics_used: list[str], snapshot: dict) -> str | None:
+    """Reason string for check 8, or ``None`` when the commentary may stand."""
+    failures: list[int] = []
+    details: dict = {}
+    not_checked: list[int] = []
+    _check_commentary(text, snapshot, {"metrics_used": metrics_used}, failures, details, not_checked)
+    if 8 in failures:
+        return str(details[8])
+    return None
 
 
 def _commentary_problem(text: str, snapshot: dict) -> str | None:

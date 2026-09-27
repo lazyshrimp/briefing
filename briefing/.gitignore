@@ -1,4 +1,6 @@
 __pycache__/
 *.pyc
 data/*.stamp
-output/
+output/*
+!output/code-map.md
+!output/impact.md

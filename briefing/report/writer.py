@@ -7,6 +7,7 @@ file, and only after the commentary slot is filled or marked missing.
 
 from __future__ import annotations
 
+import html
 import os
 from pathlib import Path
 
@@ -25,11 +26,23 @@ SECTIONS = (
 )
 _INDEXES = (("hs300", "沪深300"), ("chinext", "创业板指"))
 _SIGNALS = (
-    ("daily_buy", "Daily Buy Signal"),
-    ("weekly_buy", "Weekly Buy Signal"),
-    ("above_rising_ma5", "Price Action Above Rising 5-DMA"),
+    (
+        "daily_buy",
+        "日线买入信号",
+        "收盘价在 10 日均线和 20 日均线之上，并且 10 日均线在 20 日均线之上。相等为否。",
+    ),
+    (
+        "weekly_buy",
+        "周线买入信号",
+        "收盘价在 10 周均线和 20 周均线之上，并且 10 周均线在 20 周均线之上。周收盘取该周最后一个交易日。相等为否。",
+    ),
+    (
+        "above_rising_ma5",
+        "价格在上升的5日均线之上",
+        "收盘价在 5 日均线之上，并且 5 日均线高于前一日的 5 日均线。相等为否。",
+    ),
 )
-_RANK_PERIODS = (("当日", None), ("5日", 5), ("10日", 10), ("15日", 15), ("20日", 20))
+_RANK_PERIODS = (("当日", None), ("5日", 5), ("10日", 10), ("20日", 20))
 _KINDS = (("industry", "行业"), ("concept", "概念"))
 
 
@@ -65,14 +78,19 @@ def write_briefing(draft: Draft, output_dir: str | Path | None = None) -> dict |
     directory = Path(output_dir) if output_dir is not None else _default_output()
     target = directory / f"{on_date}.md"
     temporary = directory / f".{on_date}.md.tmp"
+    page = directory / f"{on_date}.html"
+    page_temporary = directory / f".{on_date}.html.tmp"
     try:
         directory.mkdir(parents=True, exist_ok=True)
         temporary.write_text(_render(draft, directory), encoding="utf-8", newline="\n")
+        page_temporary.write_text(_render_html(draft, directory), encoding="utf-8", newline="\n")
         os.replace(temporary, target)
+        os.replace(page_temporary, page)
     except OSError:
         temporary.unlink(missing_ok=True)
+        page_temporary.unlink(missing_ok=True)
         return STOP
-    return {"path": str(target)}
+    return {"path": str(target), "html": str(page)}
 
 
 def _default_output() -> Path:
@@ -118,6 +136,181 @@ def _render(draft: Draft, markdown_dir: Path) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def _render_html(draft: Draft, markdown_dir: Path) -> str:
+    commentary = draft.commentary
+    assert commentary is not None
+    on_date = html.escape(draft.snapshot.on_date)
+    parts = [
+        "<!DOCTYPE html>",
+        '<html lang="zh-CN">',
+        "<head>",
+        '<meta charset="utf-8">',
+        '<meta name="viewport" content="width=device-width, initial-scale=1">',
+        f"<title>每日简报 {on_date}</title>",
+        f"<style>{_PAGE_CSS}</style>",
+        "</head>",
+        "<body>",
+        "<main>",
+        "<header>",
+        "<p>每日市场简报</p>",
+        f"<h1>{on_date}</h1>",
+        "</header>",
+        _html_signals(draft.snapshot.signals),
+        _html_breadth(draft.snapshot.breadth, draft.snapshot.ma50),
+        _html_sentiment(draft.sentiment, markdown_dir),
+        _html_commentary(commentary),
+        _html_ranks(draft.snapshot.ranks),
+        "</main>",
+        "</body>",
+        "</html>",
+        "",
+    ]
+    return "\n".join(parts)
+
+
+_PAGE_CSS = """
+:root { color-scheme: dark; }
+body { margin: 0; background: #0e1420; color: #e7edf5; font-family: "Microsoft YaHei", "PingFang SC", sans-serif; }
+main { max-width: 1100px; margin: 0 auto; padding: 28px 20px 48px; }
+header p { margin: 0; color: #8ea0b8; letter-spacing: 0.08em; }
+header h1 { margin: 6px 0 22px; font-size: 32px; }
+section { margin: 0 0 22px; padding: 16px 18px; background: #172033; border: 1px solid #2a3952; border-radius: 12px; }
+h2 { margin: 0 0 14px; font-size: 18px; }
+h3 { margin: 16px 0 8px; font-size: 15px; color: #b7c7dc; }
+h4 { margin: 14px 0 6px; font-size: 14px; color: #d5e2f2; }
+.indexes { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.card { padding: 12px; background: #10192b; border-radius: 10px; }
+.signal { display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; padding: 10px 0; border-top: 1px solid #24344c; }
+.signal strong { display: block; }
+.signal span { color: #9aadc4; font-size: 13px; line-height: 1.45; }
+.badge { align-self: center; min-width: 52px; padding: 4px 10px; border-radius: 999px; text-align: center; font-weight: 700; }
+.yes { background: #1f7a4d; color: #fff; }
+.no { background: #a33b3b; color: #fff; }
+.miss { background: #5c6570; color: #fff; }
+.metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; margin: 0; }
+.metrics div { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #24344c; }
+.metrics dt { color: #9aadc4; }
+.metrics dd { margin: 0; font-variant-numeric: tabular-nums; }
+.note { color: #9aadc4; }
+table { width: 100%; border-collapse: collapse; margin: 0 0 8px; }
+th, td { padding: 6px 8px; text-align: left; border-bottom: 1px solid #24344c; }
+th { color: #8ea0b8; font-weight: 600; }
+.up { color: #3dbe7a; }
+.down { color: #f06a6a; }
+img { max-width: 100%; height: auto; border-radius: 8px; }
+@media (max-width: 800px) { .indexes, .metrics, .pair { grid-template-columns: 1fr; } }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+"""
+
+
+def _html_signals(signals: dict | str) -> str:
+    if _is_missing(signals) or not isinstance(signals, dict):
+        return "<section><h2>市场趋势</h2><p>缺失</p></section>"
+    cards = []
+    for key, label in _INDEXES:
+        index = signals.get(key)
+        rows = []
+        if _is_missing(index) or not isinstance(index, dict):
+            rows.append("<p>缺失</p>")
+        else:
+            for field, name, note in _SIGNALS:
+                shown = _show(index.get(field))
+                rows.append(
+                    "<div class=\"signal\">"
+                    f"<div><strong>{html.escape(name)}</strong><span>{html.escape(note)}</span></div>"
+                    f"{_badge(shown)}"
+                    "</div>"
+                )
+        cards.append(f"<article class=\"card\"><h3>{html.escape(label)}</h3>{''.join(rows)}</article>")
+    return "<section><h2>市场趋势</h2><div class=\"indexes\">" + "".join(cards) + "</div></section>"
+
+
+def _badge(shown: str) -> str:
+    kind = {"YES": "yes", "NO": "no"}.get(shown, "miss")
+    return f"<b class=\"badge {kind}\">{html.escape(shown)}</b>"
+
+
+def _html_breadth(breadth: dict | str, ma50: dict | str) -> str:
+    rows = [
+        ("52周新高减新低", _show(breadth.get("net")) if isinstance(breadth, dict) else "缺失"),
+        *_ma50_pairs(ma50),
+        ("当日4%+涨/跌家数", _pair(breadth.get("up4"), breadth.get("down4")) if isinstance(breadth, dict) else "缺失"),
+        ("4%突破比率（5日）", _ratio(breadth.get("ratio5")) if isinstance(breadth, dict) else "缺失"),
+        ("4%突破比率（10日）", _ratio(breadth.get("ratio10")) if isinstance(breadth, dict) else "缺失"),
+        ("滚动60日涨/跌25%家数", _pair(breadth.get("up25"), breadth.get("down25")) if isinstance(breadth, dict) else "缺失"),
+        ("60日25%多空差", _show(breadth.get("diff25")) if isinstance(breadth, dict) else "缺失"),
+    ]
+    body = "".join(f"<div><dt>{html.escape(label)}</dt><dd>{html.escape(value)}</dd></div>" for label, value in rows)
+    return f"<section><h2>广度</h2><dl class=\"metrics\">{body}</dl></section>"
+
+
+def _ma50_pairs(ma50: dict | str) -> list[tuple[str, str]]:
+    labels = (
+        ("hs300", "沪深300 50日线以上比例"),
+        ("chinext", "创业板 50日线以上比例"),
+        ("all_a", "沪深 50日线以上比例"),
+    )
+    if _is_missing(ma50) or not isinstance(ma50, dict):
+        return [(label, "缺失") for _, label in labels]
+    return [(label, _fraction(ma50.get(key))) for key, label in labels]
+
+
+def _html_sentiment(sentiment: dict | str, markdown_dir: Path) -> str:
+    if _is_missing(sentiment) or not isinstance(sentiment, dict) or not sentiment:
+        return "<section><h2>投资者情绪</h2><p>缺失</p></section>"
+    rows = [
+        ("数据日期", _show(sentiment.get("date"))),
+        ("看涨", _points(sentiment.get("bull"))),
+        ("看跌", _points(sentiment.get("bear"))),
+        ("横盘", _points(sentiment.get("flat"))),
+        ("多空差", _points(sentiment.get("spread"))),
+    ]
+    body = "".join(f"<div><dt>{html.escape(label)}</dt><dd>{html.escape(value)}</dd></div>" for label, value in rows)
+    chart = sentiment.get("chart")
+    if chart is None or _is_missing(chart):
+        picture = "<p>图：缺失</p>"
+    else:
+        href = _chart_href(str(chart), markdown_dir)
+        picture = f"<img src=\"{html.escape(href, quote=True)}\" alt=\"投资者情绪图\">"
+    return f"<section><h2>投资者情绪</h2><dl class=\"metrics\">{body}</dl>{picture}</section>"
+
+
+def _html_commentary(commentary: Commentary) -> str:
+    if commentary.is_missing():
+        text = "缺失"
+    else:
+        text = commentary.text
+    return f"<section><h2>市场评论</h2><p class=\"note\">{html.escape(text)}</p></section>"
+
+
+def _html_ranks(ranks: dict | str) -> str:
+    if _is_missing(ranks) or not isinstance(ranks, dict):
+        return "<section><h2>板块与概念</h2><p>缺失</p></section>"
+    daily = ranks.get("daily")
+    rps = ranks.get("rps")
+    blocks = []
+    for period_label, period in _RANK_PERIODS:
+        columns = []
+        for key, label in _KINDS:
+            board = _board_for(daily, rps, key, period)
+            columns.append(f"<div><h4>{html.escape(label)}</h4>{_html_board(board)}</div>")
+        blocks.append(f"<h3>{html.escape(period_label)}</h3><div class=\"pair\">{''.join(columns)}</div>")
+    return "<section><h2>板块与概念</h2>" + "".join(blocks) + "</section>"
+
+
+def _html_board(board: object) -> str:
+    if _is_missing(board) or not isinstance(board, dict) or not (board.get("items") or []):
+        return "<p>缺失</p>"
+    rows = []
+    for item in board.get("items") or []:
+        pct = _change(item.get("pct"))
+        tone = "" if pct == "缺失" else ("down" if pct.startswith("-") else "up")
+        name = html.escape(str(item.get("name") or ""))
+        rows.append(f"<tr><td>{name}</td><td class=\"{tone}\">{html.escape(pct)}</td></tr>")
+    note = "<p class=\"note\">（不足 10 个）</p>" if board.get("flag") == SHORT_LIST else ""
+    return "<table><tr><th>名称</th><th>区间涨跌幅</th></tr>" + "".join(rows) + f"</table>{note}"
+
+
 def _signals_block(signals: dict | str) -> list[str]:
     if _is_missing(signals) or not isinstance(signals, dict):
         return ["缺失"]
@@ -130,8 +323,9 @@ def _signals_block(signals: dict | str) -> list[str]:
             lines.append("缺失")
             lines.append("")
             continue
-        for field, name in _SIGNALS:
+        for field, name, note in _SIGNALS:
             lines.append(f"- {name}：{_show(index.get(field))}")
+            lines.append(f"  {note}")
         lines.append("")
     return lines
 
@@ -248,14 +442,14 @@ def _ranks_block(ranks: dict | str) -> list[str]:
     daily = ranks.get("daily")
     rps = ranks.get("rps")
     lines: list[str] = []
-    for key, label in _KINDS:
-        lines.append(f"### {label}")
+    for period_label, period in _RANK_PERIODS:
+        lines.append(f"### {period_label}")
         lines.append("")
-        for period_label, period in _RANK_PERIODS:
-            lines.append(f"#### {period_label}")
+        for key, label in _KINDS:
+            lines.append(f"#### {label}")
             lines.append("")
             board = _board_for(daily, rps, key, period)
-            lines.extend(_board_lines(board, with_rps=period is not None))
+            lines.extend(_board_lines(board))
             lines.append("")
     return lines
 
@@ -272,16 +466,10 @@ def _board_for(daily: object, rps: object, kind: str, period: int | None) -> obj
     return group.get(period, MISSING)
 
 
-def _board_lines(board: object, *, with_rps: bool) -> list[str]:
+def _board_lines(board: object) -> list[str]:
     if _is_missing(board) or not isinstance(board, dict):
         return ["缺失"]
-    lines = []
-    for index, item in enumerate(board.get("items") or [], start=1):
-        pct = _change(item.get("pct"))
-        if with_rps:
-            lines.append(f"{index}. {item.get('name')} {pct} RPS {_show(item.get('rps'))}")
-        else:
-            lines.append(f"{index}. {item.get('name')} {pct}")
+    lines = [f"{index}. {item.get('name')} {_change(item.get('pct'))}" for index, item in enumerate(board.get("items") or [], start=1)]
     if board.get("flag") == SHORT_LIST:
         lines.append("（不足 10 个）")
     if not lines:

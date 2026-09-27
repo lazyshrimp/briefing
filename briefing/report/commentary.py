@@ -94,15 +94,17 @@ def _parse(payload: object) -> Commentary | None:
 def _prompt(draft: Draft, rejection: str | None) -> str:
     data = _as_dict(draft.snapshot)
     data["sentiment"] = draft.sentiment
-    present: list[str] = []
+    present: list[tuple[str, str]] = []
     missing: list[str] = []
     for name, value in _metric_entries(data):
         if _missing_metric(value):
             missing.append(name)
         else:
-            present.append(f"{name}={_display(value)}")
+            present.append((name, _display(value)))
     lines = [
         "只根据下面已经算出的数字写一段市场评论。不产生新的市场事实。",
+        "正文用中文写成一段话。不要把 net、up4 这类指标名写进正文，指标名只放在 metrics_used。",
+        "括号里是指标含义。正文按这个含义写，不要把不同指标说成同一个差额。",
         "正文可以写交易日、情绪数据日期、「5日」「10日」「60日」以及百分比。允许写「买盘占优」。",
         "metrics_used 的每一项必须是「可用指标」中的指标名。",
         "禁止编造市场数据、涨跌幅、指数点位、成交额、市场宽度、行业或概念数据，以及可用指标里没有的数值。",
@@ -114,13 +116,46 @@ def _prompt(draft: Draft, rejection: str | None) -> str:
     if isinstance(draft.sentiment, dict) and isinstance(draft.sentiment.get("date"), str):
         lines.append(f"情绪数据日期：{draft.sentiment['date']}")
     lines.extend(["", "可用指标："])
-    lines.extend(f"- {line}" for line in present)
+    lines.extend(f"- {_glossed(name, value)}" for name, value in present)
     lines.extend(["", "缺失项："])
     lines.extend(f"- {name}" for name in _unique(missing))
     if rejection:
         lines.extend(["", f"上次未通过的原因：{rejection}", "请按该原因重写一次。"])
     lines.extend(["", '返回 JSON：{"text": "评论正文", "metrics_used": ["指标名"]}'])
     return "\n".join(lines)
+
+
+def _glossed(name: str, value: str) -> str:
+    gloss = _GLOSS.get(name)
+    shown = f"{name}={value}"
+    if not gloss:
+        return shown
+    return f"{shown}（{gloss}）"
+
+
+_GLOSS = {
+    "hs300.daily_buy": "沪深300日线条件，取值为 YES 或 NO",
+    "hs300.weekly_buy": "沪深300周线条件，取值为 YES 或 NO",
+    "hs300.above_rising_ma5": "沪深300收盘是否在上升的5日均线之上，取值为 YES 或 NO",
+    "chinext.daily_buy": "创业板指日线条件，取值为 YES 或 NO",
+    "chinext.weekly_buy": "创业板指周线条件，取值为 YES 或 NO",
+    "chinext.above_rising_ma5": "创业板指收盘是否在上升的5日均线之上，取值为 YES 或 NO",
+    "net": "52周新高家数减去新低家数，不是当日涨跌家数之差",
+    "up4": "当日收盘较前一日上涨至少4%的家数",
+    "down4": "当日收盘较前一日下跌至少4%的家数",
+    "ratio5": "最近5个交易日，4%上涨家数之和除以下跌家数之和",
+    "ratio10": "最近10个交易日，4%上涨家数之和除以下跌家数之和",
+    "up25": "按沪深300日历，相对60个交易日前收盘价上涨至少25%的家数",
+    "down25": "按沪深300日历，相对60个交易日前收盘价下跌至少25%的家数",
+    "diff25": "上涨至少25%的家数减去下跌至少25%的家数",
+    "ma50.hs300": "沪深300里收盘价在自身50日均线之上的家数/成分股数",
+    "ma50.chinext": "创业板里收盘价在自身50日均线之上的家数/创业板股票数",
+    "ma50.all_a": "沪深A股里收盘价在自身50日均线之上的家数/沪深A股数",
+    "bull": "情绪调查看涨百分比",
+    "bear": "情绪调查看跌百分比",
+    "flat": "情绪调查横盘百分比",
+    "spread": "情绪看涨百分比减去看跌百分比",
+}
 
 
 def _metric_entries(data: dict) -> list[tuple[str, object]]:

@@ -153,8 +153,8 @@ def test_a_swapped_industry_board_is_check_9(tmp_path: Path) -> None:
 def test_a_present_signal_written_as_missing_is_check_11(tmp_path: Path) -> None:
     path, snapshot, reference, context = _case(tmp_path)
     text = path.read_text(encoding="utf-8").replace(
-        "### 沪深300\n\n- Daily Buy Signal：YES",
-        "### 沪深300\n\n- Daily Buy Signal：缺失",
+        "### 沪深300\n\n- 日线买入信号：YES",
+        "### 沪深300\n\n- 日线买入信号：缺失",
         1,
     )
     path.write_text(text, encoding="utf-8")
