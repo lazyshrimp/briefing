@@ -62,9 +62,15 @@ def _present(prompt: str) -> dict[str, str]:
             continue
         name, separator, value = stripped[2:].partition("=")
         key = name.strip()
-        if separator and key and value.strip() and key not in found:
-            found[key] = value.strip()
+        value = _strip_gloss(value)
+        if separator and key and value and key not in found:
+            found[key] = value
     return found
+
+
+def _strip_gloss(value: str) -> str:
+    """Drop the prompt's trailing meaning note, which is not part of the number."""
+    return re.sub(r"（[^）]*）\s*$", "", value.strip()).strip()
 
 
 def _paragraph(prompt: str, present: dict[str, str]) -> tuple[str, list[str]]:

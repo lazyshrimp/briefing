@@ -43,3 +43,6 @@ def test_a_repeated_name_keeps_the_first_value_and_ratios_use_two_decimals() -> 
     ratio = complete_from_prompt("可用指标：\n- ratio5=2.354235423542354 买盘占优\n\n缺失项：\n")
     assert "2.35 买盘占优" in ratio["text"]
     assert "2.354" not in ratio["text"]
+    glossed = complete_from_prompt("可用指标：\n- net=7（52周新高家数减去新低家数）\n\n缺失项：\n")
+    assert "52周新高减新低为 7。" in glossed["text"]
+    assert "减去新低" not in glossed["text"]

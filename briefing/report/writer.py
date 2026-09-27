@@ -80,17 +80,37 @@ def write_briefing(draft: Draft, output_dir: str | Path | None = None) -> dict |
     temporary = directory / f".{on_date}.md.tmp"
     page = directory / f"{on_date}.html"
     page_temporary = directory / f".{on_date}.html.tmp"
+    previous_markdown = _read_bytes(target)
+    previous_page = _read_bytes(page)
     try:
         directory.mkdir(parents=True, exist_ok=True)
         temporary.write_text(_render(draft, directory), encoding="utf-8", newline="\n")
         page_temporary.write_text(_render_html(draft, directory), encoding="utf-8", newline="\n")
         os.replace(temporary, target)
-        os.replace(page_temporary, page)
+        try:
+            os.replace(page_temporary, page)
+        except OSError:
+            _restore(target, previous_markdown)
+            _restore(page, previous_page)
+            raise
     except OSError:
         temporary.unlink(missing_ok=True)
         page_temporary.unlink(missing_ok=True)
         return STOP
     return {"path": str(target), "html": str(page)}
+
+
+def _read_bytes(path: Path) -> bytes | None:
+    if not path.is_file():
+        return None
+    return path.read_bytes()
+
+
+def _restore(path: Path, previous: bytes | None) -> None:
+    if previous is None:
+        path.unlink(missing_ok=True)
+        return
+    path.write_bytes(previous)
 
 
 def _default_output() -> Path:

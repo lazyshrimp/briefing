@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -197,5 +198,31 @@ def test_a_failed_write_does_not_leave_the_day_file(tmp_path: Path, monkeypatch)
     monkeypatch.setattr("briefing.report.writer.os.replace", fail_replace)
     assert write_briefing(draft, tmp_path) == STOP
     assert not (tmp_path / f"{ON}.md").exists()
+    assert not (tmp_path / f"{ON}.html").exists()
     assert list(tmp_path.glob("*.tmp")) == []
     assert list(tmp_path.glob("*.md")) == []
+
+
+def test_a_failed_html_rename_puts_the_previous_pair_back(tmp_path: Path, monkeypatch) -> None:
+    draft = _draft()
+    draft.commentary = Commentary(text="第一稿", metrics_used=["net"])
+    write_briefing(draft, tmp_path)
+    draft.commentary = Commentary(text="第二稿", metrics_used=["net"])
+    calls = {"n": 0}
+    real_replace = os.replace
+
+    def fail_the_html_rename(source, target):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise OSError("html rename failed")
+        real_replace(source, target)
+
+    monkeypatch.setattr("briefing.report.writer.os.replace", fail_the_html_rename)
+    assert write_briefing(draft, tmp_path) == STOP
+    markdown = (tmp_path / f"{ON}.md").read_text(encoding="utf-8")
+    page = (tmp_path / f"{ON}.html").read_text(encoding="utf-8")
+    assert _section(markdown, "市场评论") == "第一稿"
+    assert "第一稿" in page
+    assert "第二稿" not in markdown
+    assert "第二稿" not in page
+    assert list(tmp_path.glob("*.tmp")) == []
